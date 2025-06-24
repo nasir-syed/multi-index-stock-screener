@@ -29,7 +29,6 @@ def format_dataframe(df):
     }
     display_df = display_df.rename(columns=column_mapping)
     
-    # Format numeric columns
     numeric_cols = ['Price ($)', 'Avg Price ($)', 'Gap ($)', 'Open', 'High', 'Low', 'Close', 'Prev Close ($)', 'ATR']
     for col in numeric_cols:
         if col in display_df.columns:
