@@ -36,7 +36,7 @@ def create_summary_data(raw_data):
             today_low = latest_data['Low']
             today_volume = latest_data['Volume']
             
-            # average price (OHLC average for the latest period)
+            # average price
             avg_price = (today_open + today_high + today_low + today_close) / 4
             
             # gap calculations
@@ -95,7 +95,7 @@ def screen_stocks(df, price_min, price_max, gap_pct_threshold, gap_abs_threshold
         (df['ATR'] >= min_atr)
     ]
     
-    # Sort by absolute gap percentage (highest gaps first)
+    # sort by the absolute gap percentage (the highest gaps are first)
     screened_sorted = screened.sort_values(by='Gap(%)', key=abs, ascending=False)
     return screened_sorted
 
@@ -112,7 +112,7 @@ def detect_anomalies(df):
     for column in ['Price ($)', 'Gap (%)', 'Volume', 'ATR']:
         if column in df.columns:
             z_scores = np.abs((df[column] - df[column].mean()) / df[column].std())
-            anomaly_mask = z_scores > 2.5  # More than 2.5 standard deviations
+            anomaly_mask = z_scores > 2.5  # more than 2.5 standard deviation
             
             for idx in df[anomaly_mask].index:
                 anomalies.append({
@@ -125,6 +125,6 @@ def detect_anomalies(df):
     if anomalies:
         anomaly_df = pd.DataFrame(anomalies)
         anomaly_df = anomaly_df.sort_values('Z Score', ascending=False).drop_duplicates('Ticker')
-        return anomaly_df.head(10)  # Top 10 anomalies
+        return anomaly_df.head(10)  
     
     return None
