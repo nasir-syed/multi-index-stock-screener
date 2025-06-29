@@ -123,7 +123,7 @@ default_session_state = {
     'data_loaded': False,
     'raw_data': None,
     'summary_data': None,
-    'selected_index': None,
+    'selected_indices': None, 
     'filtered_data': None,
     'filters_applied': False
 }
@@ -140,56 +140,78 @@ def configuration_screen():
     st.markdown('<div class="config-section">', unsafe_allow_html=True)
     st.markdown("## Configuration")
     st.markdown('<div class="heading-divider">', unsafe_allow_html=True)
-    col1, col2, col3 = st.columns(3)
+    
+    col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown("### Market Index")
-        index_name = st.selectbox(
-            "Choose Index",
+        st.markdown("### Market Indices")
+        selected_indices = st.multiselect(
+            "Choose Indices",
             options=list(INDEX_CONFIGS.keys()),
-            help="Select the stock market index to analyse"
+            default=['DOWJONES'],
+            help="Select one or more stock market indices to analyse"
         )
-    
+        
     with col2:
-        st.markdown("### Time Period")
-        period = st.selectbox(
-            "Choose Period",
-            options=['1d', '3d', '5d', '1wk', '2wk', '1mo', '2mo', '3mo'],
-            index=2,  
-            help="Time period for historical data"
-        )
-    
-    with col3:
-        st.markdown("### Data Interval")
-        interval = st.selectbox(
-            "Choose Interval",
-            options=['1m', '2m', '5m', '15m', '30m', '60m', '90m', '1h', '1d', '5d', '1wk', '1mo', '3mo'],
-            index=7, 
-            help="Data interval (frequency)"
-        )
+        tpdicol1, tpdicol2 = st.columns(2)
+        with tpdicol1:
+            st.markdown("### Time Period")
+            period = st.selectbox(
+                "Choose Period",
+                options=['1d', '3d', '5d', '1wk', '2wk', '1mo', '2mo', '3mo'],
+                index=1,  
+                help="Time period for historical data"
+            )
+        
+        with tpdicol2:
+            st.markdown("### Data Interval")
+            interval = st.selectbox(
+                "Choose Interval",
+                options=['15m', '30m', '1h', '1d', '5d', '1wk', '1mo', '3mo'],
+                index=2, 
+                help="Data interval (frequency)"
+            )        
     
     st.markdown('</div>', unsafe_allow_html=True)
     st.markdown('<div class="section-divider">', unsafe_allow_html=True)
     
+    # validate the period and interval combination, in case of invalid cases show appropriate warnings
+    is_valid_combination, validation_error = validate_period_interval(period, interval)
     
-    if st.button("Load Data", type="primary", use_container_width=True):
-        st.session_state.selected_index = index_name
-        
-        with st.spinner(f"Loading {index_name} data..."):
-            raw_data = download_index_data(index_name, period, interval)
+    no_indices_selected = not selected_indices
+    invalid_period_interval = not is_valid_combination
+    
+    if no_indices_selected:
+        st.warning("Please select at least one market index to proceed.")
+    
+    if invalid_period_interval:
+        st.error(f"Invalid Configuration: {validation_error}")
+        st.info("**Tip:** Choose a smaller interval or a longer period, for example, if you select '1d' period, use intervals like '15m', '30m', or '1h'.")
+    
+    # determine if button should be disabled
+    button_disabled = no_indices_selected or invalid_period_interval
+    
+    if button_disabled:
+        st.button("Load Data", type="primary", use_container_width=True, disabled=True)
+    else:
+        if st.button("Load Data", type="primary", use_container_width=True):
+            st.session_state.selected_indices = selected_indices
             
-            if raw_data is not None:
-                st.session_state.raw_data = raw_data
+            with st.spinner(f"Loading data for {', '.join(selected_indices)}..."):
+                raw_data = download_index_data(selected_indices, period, interval)
                 
-                with st.spinner("Creating summary data..."):
-                    summary_data = create_summary_data(raw_data)
+                if raw_data is not None:
+                    st.session_state.raw_data = raw_data
                     
-                    if summary_data is not None:
-                        st.session_state.summary_data = summary_data
-                        st.session_state.data_loaded = True
-                        st.session_state.filters_applied = False
-                        st.session_state.filtered_data = None
-                        st.rerun()
+                    with st.spinner("Creating summary data..."):
+                        summary_data = create_summary_data(raw_data)
+                        
+                        if summary_data is not None:
+                            st.session_state.summary_data = summary_data
+                            st.session_state.data_loaded = True
+                            st.session_state.filters_applied = False
+                            st.session_state.filtered_data = None
+                            st.rerun()
 
 # displays the main interface that shocases the stock data and other visuals
 def screening_interface():
@@ -199,13 +221,15 @@ def screening_interface():
     # show the current configuration (index choses and how many stocks loaded)
     col1, col2 = st.columns([3, 1])
     with col1:
-        st.info(f"**Current Data:** {st.session_state.selected_index} | {len(st.session_state.summary_data)} stocks loaded")
+        # Format the selected indices for display
+        indices_display = ', '.join(st.session_state.selected_indices) if st.session_state.selected_indices else "None"
+        st.info(f"**Current Data:** {indices_display} | {len(st.session_state.summary_data)} stocks loaded")
     with col2:
         if st.button("Load New Data", type="primary", use_container_width=True):
             st.session_state.data_loaded = False
             st.session_state.raw_data = None
             st.session_state.summary_data = None
-            st.session_state.selected_index = None
+            st.session_state.selected_indices = None  
             st.session_state.filtered_data = None
             st.session_state.filters_applied = False
             st.rerun()
@@ -243,10 +267,10 @@ def screening_interface():
         with col1:
             st.metric("Total Stocks", f"{len(current_data):,}")
         with col2:
-            avg_price = current_data['Latest Price'].mean()
+            avg_price = current_data['Price ($)'].mean()
             st.metric("Avg Price", f"${avg_price:.2f}")
         with col3:
-            avg_gap = current_data['Gap(%)'].mean()
+            avg_gap = current_data['Gap (%)'].mean()
             st.metric("Avg Gap", f"{avg_gap:.2f}%")
         with col4:
             total_volume = current_data['Volume'].sum()
@@ -267,31 +291,6 @@ def screening_interface():
             price_max = st.number_input("Max Price ($)", min_value=0.01, value=1000.0, step=1.0, format="%.2f")
     
     with col2:
-        st.markdown("##### Gap Thresholds")
-        st.markdown('<div class="heading-divider">', unsafe_allow_html=True)
-        gap_col1, gap_col2 = st.columns(2)
-        with gap_col1:
-            gap_pct_threshold = st.number_input(
-                "Min Gap (%)", 
-                min_value=0.0, 
-                value=0.1, 
-                step=0.1, 
-                format="%.2f",
-                help="Minimum gap percentage required"
-            )
-        with gap_col2:
-            gap_abs_threshold = st.number_input(
-                "Min Gap ($)", 
-                min_value=0.0, 
-                value=0.01, 
-                step=0.01, 
-                format="%.3f",
-                help="Minimum absolute gap in dollars"
-            )
-    
-    st.markdown('<div class="heading-divider">', unsafe_allow_html=True)
-    col1, col2 = st.columns(2)
-    with col1:
         st.markdown("##### Volume Requirements")
         st.markdown('<div class="heading-divider">', unsafe_allow_html=True)
         vol_col1, vol_col2 = st.columns(2)
@@ -312,25 +311,54 @@ def screening_interface():
                 help="Minimum average volume"
             )
     
-    with col2:
-        st.markdown("##### Volatility")
+    st.markdown('<div class="heading-divider">', unsafe_allow_html=True)
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("##### Volatility & Gap")
         st.markdown('<div class="heading-divider">', unsafe_allow_html=True)
-        atr_col1, atr_col2 = st.columns(2)
-        with atr_col1:
+        gap_col1, gap_col2 = st.columns(2)
+        with gap_col1:
+            gap_pct_threshold = st.number_input(
+                "Min Gap (%)", 
+                min_value=0.0, 
+                value=0.01, 
+                step=0.1, 
+                format="%.2f",
+                help="Minimum gap percentage required"
+            )
+        with gap_col2:
             min_atr = st.number_input(
                 "Min ATR", 
                 min_value=0.0, 
-                value=0.1, 
+                value=0.01, 
                 step=0.05, 
                 format="%.3f",
                 help="Minimum Average True Range"
             )
-        with atr_col2:
-            button_col1, button_col2 = st.columns(2)
-            with button_col1:
-                run_screen = st.button("Apply Filters", type="secondary", use_container_width=True,)
-            with button_col2:
-                reset_filters = st.button("Reset Filters", type="secondary", use_container_width=True)
+       
+    with col2:
+        st.markdown("##### Sector Filter")
+        st.markdown('<div class="heading-divider">', unsafe_allow_html=True)
+        available_sectors = sorted([
+            sector for sector in st.session_state.summary_data['Sector'].unique() 
+            if sector != 'N/A' and pd.notna(sector)
+        ])
+        
+        if available_sectors:
+            selected_sectors = st.multiselect(
+                "Select Sectors",
+                options=available_sectors,
+                help="Choose which sectors to include in the screening"
+            )
+        else:
+            selected_sectors = []
+            st.info("No sector data available")
+    
+    button_col1, button_col2 = st.columns(2)
+    with button_col1:
+        run_screen = st.button("Apply Filters", type="secondary", use_container_width=True,)
+    with button_col2:
+        reset_filters = st.button("Reset Filters", type="secondary", use_container_width=True)
     
     st.markdown('</div>', unsafe_allow_html=True)
     st.markdown('<div class="section-divider">', unsafe_allow_html=True)
@@ -338,13 +366,13 @@ def screening_interface():
     
     if not current_data.empty:
         # display data table
-        display_df = format_dataframe(current_data)
+        display_df = current_data.copy()
         styled_df = apply_gap_styling(display_df)
         st.dataframe(styled_df, use_container_width=True, height=400)
 
         st.markdown('<div class="section-divider">', unsafe_allow_html=True)
 
-        # top Movers Tables
+        # top movers tables
         st.markdown("### Top Movers")
         gainers, losers = create_top_movers_tables(current_data)
 
@@ -371,11 +399,12 @@ def screening_interface():
         if st.session_state.filters_applied and not current_data.empty:
             csv = current_data.to_csv(index=False)
             st.markdown('<div class="heading-divider">', unsafe_allow_html=True)
+            indices_filename = '_'.join(st.session_state.selected_indices).replace(' ', '_')
             st.download_button(
                 label=" Download as CSV",
                 type="primary",
                 data=csv,
-                file_name=f"screened_stocks_{st.session_state.selected_index.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                file_name=f"screened_stocks_{indices_filename}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv",
                 use_container_width=True
             )
@@ -411,8 +440,7 @@ def screening_interface():
     if run_screen:
         with st.spinner('Applying filters...'):
             screened_df = screen_stocks(
-                st.session_state.summary_data, price_min, price_max, gap_pct_threshold, 
-                gap_abs_threshold, min_volume, min_avg_volume, min_atr
+                st.session_state.summary_data, price_min, price_max, gap_pct_threshold, min_volume, min_avg_volume, min_atr, selected_sectors
             )
             st.session_state.filtered_data = screened_df
             st.session_state.filters_applied = True
