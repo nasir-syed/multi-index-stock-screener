@@ -4,192 +4,179 @@ import yfinance as yf
 import time
 from utils import get_batches
 
-# the 30 companies for dow jones 
-DOW_JONES_TICKERS = [
-    'AAPL', 'AMGN', 'AXP', 'BA', 'CAT', 'CRM', 'CSCO', 'CVX', 'DIS', 'DOW',
-    'GS', 'HD', 'HON', 'IBM', 'INTC', 'JNJ', 'JPM', 'KO', 'MCD', 'MMM',
-    'MRK', 'MSFT', 'NKE', 'PG', 'TRV', 'UNH', 'V', 'VZ', 'WBA', 'WMT'
-]
-
+# different stock indexes 
 INDEX_CONFIGS = {
-    'S&P 500': {
-        'ticker': '^GSPC',
-        'url': 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies',
-        'table_index': 0,
-        'symbol_column': 'Symbol',
-        'use_batches': False
-    },
     'NASDAQ': {
         'ticker': '^IXIC', 
-        'file_path': 'nasdaq_tickers.txt',
+        'file_path': 'nasdaq_tickers.csv',
         'use_batches': True,
-        'batch_size': 500
     },
-    'Dow Jones': {
+    'NYSE': {
+        'ticker': '^NYA',
+        'file_path': 'nyse_tickers.csv',
+        'use_batches': True,
+    },
+    'DOWJONES': {
         'ticker': '^DJI',
-        'tickers': DOW_JONES_TICKERS,
-        'use_batches': False
+        'file_path': 'dowjones_tickers.csv',
+        'use_batches': True,
     }
 }
 
-# loads the nasdaq tickers from the txt file
-def load_nasdaq_tickers(file_path='nasdaq_tickers.txt'):
+def download_batch(tickers, period, interval, ticker_info_dict):
     try:
-        df = pd.read_csv(file_path, sep='|')
-        tickers = df['Symbol'].dropna().tolist()
-        return tickers
-    except Exception as e:
-        st.error(f"Error loading NASDAQ tickers from {file_path}: {e}")
-        return []
-
-# depending upon the users choice of index, retrives the appropriate tickers 
-def get_index_tickers(index_name):
-    try:
-        config = INDEX_CONFIGS[index_name]
+        all_frames = []
+        company_info_dict = {}
         
-        if index_name == 'S&P 500':
-            # get S&P 500 tickers from Wikipedia
-            tables = pd.read_html(config['url'])
-            df = tables[config['table_index']]
-            tickers = df[config['symbol_column']].tolist()
-            tickers = [ticker.replace('.', '-') for ticker in tickers]
+        # getting the data in bulk (for the whole batch) 
+        try:
+            bulk_data = yf.download(
+                tickers=tickers,
+                period=period,
+                interval=interval,
+                group_by='ticker',
+                auto_adjust=False,
+                threads=True,
+                progress=False
+            )
             
-        elif index_name == 'NASDAQ':
-            tickers = load_nasdaq_tickers(config['file_path'])
+            # process each ticker
+            progress_bar = st.progress(0)
+            status_text = st.empty()
             
-        elif index_name == 'Dow Jones':
-            tickers = config['tickers'].copy()
+            for i, ticker in enumerate(tickers):
+                try:
+                    # get ticker info from the pre-loaded data
+                    ticker_info = ticker_info_dict.get(ticker, {
+                        'Company Name': 'N/A',
+                        'Sector': 'N/A'
+                    })
+                    
+                    company_info = {
+                        'Ticker': ticker,
+                        'Company Name': ticker_info.get('Company Name', 'N/A'),
+                        'Sector': ticker_info.get('Sector', 'N/A')
+                    }
+                    company_info_dict[ticker] = company_info
+                    
+                    # extract the ticker data from bulk download
+                    if isinstance(bulk_data.columns, pd.MultiIndex):
+                        ticker_data = bulk_data.xs(ticker, axis=1, level=0)
+                    else:
+                        ticker_data = bulk_data
+                    
+                    ticker_data = ticker_data.dropna()
+                    if not ticker_data.empty:
+                        ticker_data['Ticker'] = ticker
+                        ticker_data['Company Name'] = company_info['Company Name']
+                        ticker_data['Sector'] = company_info['Sector']
+                        all_frames.append(ticker_data)
+                        
+                except Exception as e:
+                    continue
+                
+                progress_bar.progress((i + 1) / len(tickers))
+                status_text.text(f"Processing: {i + 1}/{len(tickers)} stocks")
             
-        return tickers
+            progress_bar.empty()
+            status_text.empty()
+            
+        except Exception as e:
+            st.error("Download Failed :(")
+            
+        return all_frames, company_info_dict
+        
+    except Exception as e:
+        st.error(f"Batch download failed: {e}")
+        return [], {}
+
+def download_index_data(selected_indices, period, interval):
+    tickers, ticker_info_dict = get_combined_tickers_and_info(selected_indices)
+    
+    if not tickers:
+        st.error(f"No tickers found for selected indices: {', '.join(selected_indices)}")
+        return None
+    
+    if(len(selected_indices) > 1):
+        st.warning("**Note:** For multiple indices, duplicates are removed.")
+    st.warning("**Note:** Few stocks may have been delisted, or have no data (in the selected period) to be fetched.")
+    st.info(f"Downloading data for {len(tickers)} stocks...")
+    
+    batch_size = 500
+    batches = list(get_batches(tickers, batch_size))
+    
+    all_frames = []
+    all_company_info = {}
+    
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    for batch_num, batch in enumerate(batches):
+        status_text.text(f"Processing batch {batch_num + 1}/{len(batches)} ({len(batch)} stocks)...")
+        
+        batch_frames, batch_info = download_batch(batch, period, interval, ticker_info_dict)
+        
+        all_frames.extend(batch_frames)
+        all_company_info.update(batch_info)
+        
+        progress_bar.progress((batch_num + 1) / len(batches))
+        
+        time.sleep(1) # to prevent rate limiting :)
+
+    progress_bar.empty()
+    status_text.empty()
+    
+    if all_frames:
+        combined_df = pd.concat(all_frames, ignore_index=True)
+        st.success(f"Successfully downloaded data for {len(all_frames)} stocks with company information")
+        return combined_df
+    else:
+        st.error("No data collected")
+        return None
+
+def load_index_tickers(index_name):
+    try:
+        config = INDEX_CONFIGS.get(index_name.upper())
+        if not config:
+            st.error(f"Index {index_name} not found in configurations")
+            return [], {}
+            
+        file_path = config['file_path']
+        
+        df = pd.read_csv(file_path)
+        ticker_info_dict = {}
+        for _, row in df.iterrows():
+            ticker_info_dict[row['Symbol']] = {
+                'Company Name': row['Company Name'],
+                'Sector': row['Sector']
+            }
+        
+        tickers = df['Symbol'].dropna().tolist()
+        st.info(f"Loaded {len(tickers)} tickers from {index_name}")
+        return tickers, ticker_info_dict
+        
+    except Exception as e:
+        st.error(f"Error loading {index_name} tickers from {file_path}: {e}")
+        return [], {}
+
+def get_index_tickers_and_info(index_name):
+    try:
+        return load_index_tickers(index_name)
         
     except Exception as e:
         st.error(f"Error fetching {index_name} tickers: {e}")
-        return []
+        return [], {}
 
-
-# downloads a batch of tickers (used for NASDAQ) (used by the download_index_data)
-def download_batch(tickers, period, interval): 
-    try:
-        return yf.download(
-            tickers=tickers,
-            period=period,
-            interval=interval,
-            group_by='ticker',
-            auto_adjust=False,
-            threads=True,
-            progress=False
-        )
-    except Exception as e:
-        st.error(f"Batch download failed. Error: {e}")
-        return None
-
-# downloads a all tickers in one go (used by the download_index_data)
-def download_all(tickers, period, interval):
-    try:
-        return yf.download(
-            tickers=tickers,
-            period=period,
-            interval=interval,
-            group_by='ticker',
-            auto_adjust=False,
-            threads=True,
-            progress=False
-        )
-    except Exception as e:
-        st.error(f"Download failed. Error: {e}")
-        return None
-
-def download_index_data(index_name, period, interval):
-    tickers = get_index_tickers(index_name)
+def get_combined_tickers_and_info(selected_indices):
+    all_tickers = []
+    combined_ticker_info = {}
     
-    if not tickers:
-        st.error(f"No tickers found for {index_name}")
-        return None
+    for index_name in selected_indices:
+        tickers, ticker_info = get_index_tickers_and_info(index_name)
+        if tickers:
+            all_tickers.extend(tickers)
+            combined_ticker_info.update(ticker_info)
     
-    st.info(f"Found {len(tickers)} tickers for {index_name}")
+    unique_tickers = list(dict.fromkeys(all_tickers))
     
-    config = INDEX_CONFIGS[index_name]
-    
-    if config['use_batches']:
-        # use batch processing (for NASDAQ)
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        batch_size = config['batch_size']
-        batches = list(get_batches(tickers, batch_size))
-        all_frames = []
-        
-        for batch_num, batch in enumerate(batches):
-            status_text.text(f"Downloading Batch {batch_num + 1}/{len(batches)} ({len(batch)} tickers)...")
-            progress_bar.progress((batch_num + 1) / len(batches))
-            
-            hist = download_batch(batch, period, interval)
-            if hist is None:
-                continue
-                
-            for ticker in batch:
-                try:
-                    if len(batch) == 1:
-                        df = hist
-                    else:
-                        if isinstance(hist.columns, pd.MultiIndex):
-                            df = hist.xs(ticker, axis=1, level=0)
-                        else:
-                            df = hist
-                    
-                    df = df.dropna()
-                    if not df.empty:
-                        df['Ticker'] = ticker
-                        all_frames.append(df)
-                        
-                except Exception as e:
-                    continue
-            
-            # a small delay to prevent rate limiting
-            time.sleep(0.5)
-        
-        progress_bar.empty()
-        status_text.empty()
-        
-        if all_frames:
-            combined_df = pd.concat(all_frames)
-            st.success(f"Successfully downloaded data for {len(all_frames)} stocks")
-            return combined_df
-        else:
-            st.error("No data collected")
-            return None
-    
-    else:
-        # download data for all tickers in one go (for S&P 500 and Dow Jones)
-        with st.spinner(f'Downloading {index_name} data...'):
-            hist = download_all(tickers, period, interval)
-            if hist is None:
-                return None
-            
-            all_frames = []
-            
-            for ticker in tickers:
-                try:
-                    if len(tickers) == 1:
-                        df = hist
-                    else:
-                        if isinstance(hist.columns, pd.MultiIndex):
-                            df = hist.xs(ticker, axis=1, level=0)
-                        else:
-                            df = hist
-                    
-                    df = df.dropna()
-                    if not df.empty:
-                        df['Ticker'] = ticker
-                        all_frames.append(df)
-                        
-                except Exception as e:
-                    continue
-            
-            if all_frames:
-                combined_df = pd.concat(all_frames)
-                st.success(f"Successfully downloaded data for {len(all_frames)} stocks")
-                return combined_df
-            else:
-                st.error("No data collected")
-                return None
+    return unique_tickers, combined_ticker_info
