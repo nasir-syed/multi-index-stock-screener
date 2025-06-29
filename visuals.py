@@ -1,5 +1,4 @@
 import plotly.graph_objects as go
-from utils import format_dataframe
 
 # creates a chart for showcasing the positive and negative gaps  
 def create_gap_chart(df, title="Gap Distribution"):
@@ -8,13 +7,13 @@ def create_gap_chart(df, title="Gap Distribution"):
         
     fig = go.Figure()
     
-    positive_gaps = df[df['Gap(%)'] > 0]
-    negative_gaps = df[df['Gap(%)'] < 0]
+    positive_gaps = df[df['Gap (%)'] > 0]
+    negative_gaps = df[df['Gap (%)'] < 0]
     
     if not positive_gaps.empty:
         fig.add_trace(go.Bar(
             x=positive_gaps['Ticker'],
-            y=positive_gaps['Gap(%)'],
+            y=positive_gaps['Gap (%)'],
             name='Gap Up',
             marker_color='#2a9d8f',
             hovertemplate='<b>%{x}</b><br>Gap: %{y:.2f}%<extra></extra>'
@@ -23,7 +22,7 @@ def create_gap_chart(df, title="Gap Distribution"):
     if not negative_gaps.empty:
         fig.add_trace(go.Bar(
             x=negative_gaps['Ticker'],
-            y=negative_gaps['Gap(%)'],
+            y=negative_gaps['Gap (%)'],
             name='Gap Down',
             marker_color='#e74c3c',
             hovertemplate='<b>%{x}</b><br>Gap: %{y:.2f}%<extra></extra>'
@@ -46,7 +45,6 @@ def create_top_movers_tables(df):
     if df.empty:
         return None, None
     
-    df = format_dataframe(df)
     
     # Top gainers (positive gaps)
     gainers = df[df['Gap (%)'] > 0].nlargest(10, 'Gap (%)')
