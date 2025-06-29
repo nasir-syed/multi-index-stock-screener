@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from utils import format_dataframe, calculate_atr
+from utils import calculate_atr
 
 # summarises the raw data retrieved from yfinance by calculating average price, gap, and more.
 def create_summary_data(raw_data):
@@ -14,7 +14,7 @@ def create_summary_data(raw_data):
     progress_bar = st.progress(0)
     status_text = st.empty()
     
-    total_tickers = len(grouped)
+    total_tickers = len(grouped) 
     
     for idx, (ticker, df) in enumerate(grouped):
         status_text.text(f"Processing {ticker} ({idx + 1}/{total_tickers})...")
@@ -34,17 +34,16 @@ def create_summary_data(raw_data):
             today_close = latest_data['Close']
             today_high = latest_data['High']
             today_low = latest_data['Low']
-            today_volume = latest_data['Volume']
             
-            # average price
+            # average price (OHLC average for the latest period)
             avg_price = (today_open + today_high + today_low + today_close) / 4
             
             # gap calculations
             gap_abs = today_open - prev_close
             gap_pct = (gap_abs / prev_close) * 100 if prev_close != 0 else 0
             
-            # volume metrics
-            avg_volume = df['Volume'].rolling(window=min(10, len(df))).mean().iloc[-1]
+            total_volume = df['Volume'].sum()  
+            avg_volume = df['Volume'].mean()   
             
             # ATR calculation
             if len(df) >= 14:
@@ -52,20 +51,22 @@ def create_summary_data(raw_data):
             else:
                 atr = (today_high - today_low)  # simple range in case not enough data for ATR
             
+            company_name = df['Company Name'].iloc[-1] if 'Company Name' in df.columns else 'N/A'
+            sector = df['Sector'].iloc[-1] if 'Sector' in df.columns else 'N/A'
+
+            
             summary_results.append({
                 'Ticker': ticker,
-                'Latest Price': round(today_close, 2),
-                'Average Price': round(avg_price, 2),
-                'Gap($)': round(gap_abs, 2),
-                'Gap(%)': round(gap_pct, 2),
-                'Volume': int(today_volume),
-                'Avg Volume': int(avg_volume),
+                'Company Name': company_name,
+                'Sector': sector,
+                'Price ($)': round(today_close, 2),
+                'Avg Price ($)': round(avg_price, 2),
+                'Gap ($)': round(gap_abs, 2),
+                'Gap (%)': round(gap_pct, 2),
+                'Volume': int(total_volume),  
+                'Avg Volume': int(avg_volume),      
                 'ATR': round(atr, 2),
-                'Open': round(today_open, 2),
-                'High': round(today_high, 2),
-                'Low': round(today_low, 2),
-                'Close': round(today_close, 2),
-                'Prev Close': round(prev_close, 2)
+                # 'Data Points': len(df), 
             })
             
         except Exception as e:
@@ -76,6 +77,7 @@ def create_summary_data(raw_data):
     
     if summary_results:
         df_summary = pd.DataFrame(summary_results)
+        
         st.success(f"Successfully processed {len(df_summary)} stocks")
         return df_summary
     else:
@@ -83,20 +85,26 @@ def create_summary_data(raw_data):
         return None
 
 # applies the chosen filters to the stocks and retrieves those that meet them
-def screen_stocks(df, price_min, price_max, gap_pct_threshold, gap_abs_threshold, 
-                 min_volume, min_avg_volume, min_atr):
-    screened = df[
-        (df['Latest Price'] >= price_min) &
-        (df['Latest Price'] <= price_max) &
-        (df['Gap($)'].abs() >= gap_abs_threshold) &
-        (df['Gap(%)'].abs() >= gap_pct_threshold) &
-        (df['Volume'] >= min_volume) &
-        (df['Avg Volume'] >= min_avg_volume) &
-        (df['ATR'] >= min_atr)
+def screen_stocks(df, price_min, price_max, gap_pct_threshold,
+                 min_volume, min_avg_volume, min_atr, selected_sectors=None):
+    
+    df_copy = df.copy()
+    
+    screened = df_copy[
+        (df_copy['Price ($)'] >= price_min) &
+        (df_copy['Price ($)'] <= price_max) &
+        (df_copy['Gap (%)'].abs() >= gap_pct_threshold) &
+        (df_copy['Volume'] >= min_volume) &
+        (df_copy['Avg Volume'] >= min_avg_volume) &
+        (df_copy['ATR'] >= min_atr)
     ]
     
-    # sort by the absolute gap percentage (the highest gaps are first)
-    screened_sorted = screened.sort_values(by='Gap(%)', key=abs, ascending=False)
+    # apply sector filter
+    if selected_sectors and len(selected_sectors) > 0:
+        screened = screened[screened['Sector'].isin(selected_sectors)]
+    
+    # sort by absolute gap percentage (highest gaps first)
+    screened_sorted = screened.sort_values(by='Gap (%)', key=abs, ascending=False)
     return screened_sorted
 
 # detects stocks with abnormally high price, gap, volume and atr in comparison to others stocks in that column
@@ -104,15 +112,13 @@ def detect_anomalies(df):
     if df.empty:
         return None
     
-    df = format_dataframe(df)
-    
     anomalies = []
     
     # z-score based anomaly detection
     for column in ['Price ($)', 'Gap (%)', 'Volume', 'ATR']:
         if column in df.columns:
             z_scores = np.abs((df[column] - df[column].mean()) / df[column].std())
-            anomaly_mask = z_scores > 2.5  # more than 2.5 standard deviation
+            anomaly_mask = z_scores > 2.5  #  more than 2.5 standard deviations
             
             for idx in df[anomaly_mask].index:
                 anomalies.append({
@@ -125,6 +131,6 @@ def detect_anomalies(df):
     if anomalies:
         anomaly_df = pd.DataFrame(anomalies)
         anomaly_df = anomaly_df.sort_values('Z Score', ascending=False).drop_duplicates('Ticker')
-        return anomaly_df.head(10)  
+        return anomaly_df.head(10)  #
     
     return None
