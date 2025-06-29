@@ -1,13 +1,13 @@
 # multi-index-stock-screener
 
-A dynamic and interactive Streamlit app that enables real-time screening and analysis of stocks across major U.S. market indices (S&P 500, NASDAQ, and more), designed with both traders and data analysts in mind as it combines great visuals with powerful filters to help you discover useful market insights effortlessly!
+A dynamic and interactive Streamlit app that enables real-time screening and analysis of stocks across major U.S. market indices (NYSE , NASDAQ, and more), designed with both traders and data analysts in mind as it combines great visuals with powerful filters to help you discover useful market insights effortlessly!
 
 Give it a try: https://multi-index-stock-screener.streamlit.app/
 
 ---
 
 ## Key Features
-- **Multi-Index Support**: Analyse stocks across S&P major U.S market indices with a simple dropdown.
+- **Multi-Index Support**: Analyse stocks across major U.S market indices with a simple dropdown.
 - **Powerful Filters**: Filter stocks based on customizable criteria like volatility, volume, gap and more.
 - **Real-Time Summary Metrics**: Get instant stats to help discover market insights.
 - **Anomaly Detection**: Identify market outliers using Z-Score based anomaly detection.
